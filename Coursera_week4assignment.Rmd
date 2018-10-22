@@ -1,0 +1,179 @@
+---
+title: "Coursera_machine_learning_assignment"
+author: "Soumava Dey"
+date: "October 21, 2018"
+output: html_document
+---
+
+```{r initial, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+## 1. Overview
+
+This analysis document serves as a final report for the peer assessment review of Coursera's course Machine learning as a part of the Data Science Speialization course affiliated by John Hopkins University. This report is built on Rstudio using the knitr functionalities.The goal of your project is to predict the manner in which 6 participants completed different forms of exercies as described in the next section. The variable "class" in the training set will be the main predictor for this exercise. 
+
+## 2. Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+```{r setup, include=FALSE}
+library(caret)
+library(knitr)
+library(rattle)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+set.seed(1000)
+
+```
+## 3. Data Loading
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+
+```{r data , echo=TRUE}
+traindata_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testdata_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+Trainfile <- "pml-training.csv"
+Testfile <- "pml-testing.csv"
+
+if(!file.exists(Trainfile))
+{
+  download.file(traindata_url, destfile = Trainfile)
+}
+training_pml <- read.csv(Trainfile)
+
+
+if(!file.exists(Testfile))
+{
+  download.file(testdata_url, destfile = Testfile)
+}
+test_pml <- read.csv(Testfile)
+
+#Create a partition to build a tranining set(80% of the data) for modelling purpose and to build a test set for validation purpose.
+inTrain <- createDataPartition(training_pml$classe,p=0.7,list = FALSE)
+
+Trainset <- training_pml[inTrain, ]
+
+Testset <- training_pml[-inTrain, ]
+
+head(Trainset)
+
+```
+
+## 4. Data pre-processing
+
+As a part of data cleansing process the non-zero variance values and the varables with MOSTLY NA values are going to be removed from the training and test data sets
+
+```{r data cleaning, echo=FALSE}
+#Remove NZV values from the train and test datasets
+dim(Trainset)
+dim(Testset)
+
+nzv <- nearZeroVar(Trainset)
+Trainset <- Trainset[,-nzv]
+Testset <- Testset[,-nzv]
+
+#Remove NA values from the train and test datasets
+NA1 <- sapply(Trainset, function(x) mean(is.na(x))) > 0.95
+
+Trainset <- Trainset[,NA1==FALSE]
+Testset <- Testset[,NA1==FALSE]
+
+#Remove ID variables
+Trainset <- Trainset[,-(1:5)]
+Testset <- Testset[,-(1:5)]
+
+dim(Trainset)
+dim(Testset)
+```
+
+## 5. Correlation analysis
+
+As a part of initial analysis process, we need to draw few plots to check the relation between variables from the training dataset
+
+```{r correlation analysis, echo=FALSE}
+corMatrix <- cor(Trainset[,-54], method = c("pearson", "kendall", "spearman"))
+corrplot(corMatrix, type = "upper", order = "FPC", 
+         tl.col = "black", tl.srt = 45)
+heatmap(x = corMatrix, symm = TRUE)
+```
+
+After plotting the variables using correlated plots and heatmap , we could see that the related variables,which are shown on dark colors, are very few in numbers so there is no need to perform PCA(Principal component analysis) test further.
+
+## 6. Predictive model building
+In this particular exercise , there are three popular methods will be used to build a regression model for the train dataset and the best model with the highest accuracy will be applied to test dataset for quiz predictions.
+Three regression model methods are defined below:
+a) Random Forest
+b) Decision Tree
+c) Generalized Boosted Model
+
+In order to measure the performance level a confusionmatrix will be drawn to find the best fitted model with highest accuracy.
+
+### Random Forest Model
+
+```{r RandomForest, echo= TRUE}
+#train the model using random forest method
+controlRF <- trainControl(method = "cv",number=3, verboseIter=FALSE)
+modrandomforest <- train(classe ~ .,data=Trainset,method="rf",trControl=controlRF)
+modrandomforest
+#prediction on test dataset
+predictrf <- predict(modrandomforest,newdata = Testset)
+#Find accuracy using confusion matrix
+confrandomforest <- confusionMatrix(predictrf,Testset$classe)
+confrandomforest
+confrandomforest$overall['Accuracy']
+```
+ 
+Random Forest model accuracy 0.9927.
+
+### Decision Tree Model
+
+```{r decision tree, echo= TRUE}
+moddecisiontree <- rpart(classe ~ .,data=Trainset,method="class")
+fancyRpartPlot(moddecisiontree)
+#prediction on test dataset
+predictdc <- predict(moddecisiontree,newdata = Testset,type = "class")
+#Find accuracy using confusion matrix
+confdc <- confusionMatrix(predictdc,Testset$classe)
+confdc
+confdc$overall['Accuracy']
+```
+Decision model accuracy 0.7138.
+
+### Generalized Boosted Model(GBM)
+
+```{r GBM, echo= TRUE}
+controlGBM <- trainControl(method = "repeatedcv",number=3, verboseIter=FALSE)
+modgbm <- train(classe ~ .,data=Trainset,method="gbm",trControl=controlGBM)
+#prediction on test dataset
+predictgbm <- predict(modgbm,newdata = Testset)
+#Find accuracy using confusion matrix
+confgbm <- confusionMatrix(predictgbm,Testset$classe)
+confgbm
+confgbm$overall['Accuracy']
+```
+
+Decision model accuracy 0.9646.
+
+## 7. Apply the best accurate model to test data
+
+Based on the confusionmatrix analysis results, the random forest method prouced the best accurate prediction on the "classe" variable of the test dataset. The Random Forest model will be applied to the original test dataset for final predictions.
+
+```{r final prediction, echo= TRUE}
+finalpredict <- predict(modrandomforest,newdata = test_pml)
+finalpredict
+
+```
